@@ -231,23 +231,20 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
         # Notify admin (best-effort)
-        if ADMIN_CHAT_ID and isinstance(ADMIN_CHAT_ID, int) and ADMIN_CHAT_ID != 123456789:
-            msg_admin = (
-                f"🆕 New Payment Confirmation
+      # Notify admin (best-effort)
+if ADMIN_CHAT_ID and isinstance(ADMIN_CHAT_ID, int) and ADMIN_CHAT_ID != 123456789:
+    msg_admin = (
+        "🆕 New Payment Confirmation\n\n"
+        f"User: @{user.username or 'N/A'} (id: {user.id})\n"
+        f"Name: {user.full_name}\n"
+        f"Package: {selection}\n"
+        f"Time: {datetime.now().isoformat(timespec='seconds')}"
+    )
+    try:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg_admin)
+    except Exception as e:
+        logging.error("Failed to notify admin: %s", e)
 
-"
-                f"User: @{user.username or 'N/A'} (id: {user.id})
-"
-                f"Name: {user.full_name}
-"
-                f"Package: {selection}
-"
-                f"Time: {datetime.now().isoformat(timespec='seconds')}"
-            )
-            try:
-                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg_admin)
-            except Exception as e:
-                logging.error("Failed to notify admin: %s", e)
 
         # Thank the user – fall back to sending a new message if edit fails
         try:
