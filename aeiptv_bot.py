@@ -1,40 +1,52 @@
 """
-Telegram Subscription Bot – Minimal, production‑ready example
-Library: python-telegram-bot >= 21.0
+Telegram Subscription Bot – Render-ready (ENV + .env), ptb>=21
 
-What it does
-------------
-• Shows plans with inline buttons (Arabic + English)
-• Walks the user through subscription (plan → name → email → payment method)
-• Generates an order ID and sends a payment link/QR instructions
-• Collects payment confirmation (transaction/reference ID or screenshot note)
-• Notifies Admin in DM and posts a compact receipt back to the user
-• Simple /status to recall latest order
-• Cleanly structured with ConversationHandler and inline keyboards
+What’s new in this version
+--------------------------
+• Loads secrets from environment (Render) and also supports a local .env for testing
+• Adds /myid to get your numeric chat id easily
+• Startup health logs (without printing secrets)
+• Same guided subscription flow (plans → name → email → payment method → invoice → payment ref)
+• Clean, minimal, production-friendly structure
 
-Environment
------------
-Set these environment variables before running (e.g. in Render, Railway, or .env):
-  BOT_TOKEN=<your bot token>
-  ADMIN_CHAT_ID=<your Telegram numeric ID>
-Optional (leave blank if not used):
-  SUPPORT_USERNAME=<your support username without @>
-  BRAND_NAME="AEIPTV"                 # used in messages
-  PAYMENT_LINK_BASE="https://pay.example.com/invoice/"   # prefix used to build invoice URL
+Environment (Render → Service → Environment Variables)
+-----------------------------------------------------
+Required:
+  BOT_TOKEN             # Telegram bot token (from @BotFather)
+  ADMIN_CHAT_ID         # Your numeric Telegram ID (for order DMs)
+Optional:
+  BRAND_NAME=AEIPTV
+  SUPPORT_USERNAME=AE_IPTV
+  PAYMENT_LINK_BASE=https://pay.example.com/invoice/
+  LOG_LEVEL=INFO        # DEBUG/INFO/WARNING/ERROR
 
-Run locally
------------
-python -m pip install "python-telegram-bot>=21"
+Local dev (optional):
+Create .env next to this file and the code will auto-load it.
+
+Run
+---
+python -m pip install "python-telegram-bot>=21" python-dotenv
 python bot.py
 
-Switch to webhook later if you deploy behind HTTPS; this example uses polling for simplicity.
+Deployment (Render)
+-------------------
+Worker → Build: pip install -r requirements.txt
+Worker → Start: python bot.py
 """
 from __future__ import annotations
 import os
 import random
 import string
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional
+
+# Optional: load .env for local dev; Render still uses real env vars
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
 
 from telegram import (
     Update,
@@ -51,6 +63,14 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+# ====== Logging
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+)
+logger = logging.getLogger("subbot")
 
 # ====== Conversation states
 CHOOSING_PLAN, ASK_NAME, ASK_EMAIL, ASK_METHOD, SHOW_INVOICE, WAIT_PAYMENT_PROOF = range(6)
@@ -97,6 +117,10 @@ SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME", "AE_IPTV")
 BRAND = os.environ.get("BRAND_NAME", "AEIPTV")
 PAYMENT_LINK_BASE = os.environ.get("PAYMENT_LINK_BASE", "https://pay.example.com/invoice/")
 
+# Health log (don’t print secrets!)
+logger.info("Has BOT_TOKEN: %s", bool(BOT_TOKEN))
+logger.info("Has ADMIN_CHAT_ID: %s", bool(ADMIN_CHAT_ID))
+
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is missing. Set it in your environment.")
 if not ADMIN_CHAT_ID:
@@ -115,7 +139,7 @@ PAYMENT_METHODS = [
     ("CRYPTO", "🪙 Crypto (USDT)")
 ]
 
-# ====== Utilities
+# ====== Keyboards
 
 def make_plans_kb() -> InlineKeyboardMarkup:
     rows = []
@@ -140,11 +164,28 @@ def make_paid_kb(order_id: str) -> InlineKeyboardMarkup:
 # ====== Handlers
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        f"👋 Welcome to {BRAND}!\n\n"
-        "Choose a plan to begin:\nاختر الباقة للبدء:"
+        f"👋 Welcome to {BRAND}!
+
+"
+        "Choose a plan to begin:
+اختر الباقة للبدء:"
     )
     await update.effective_chat.send_message(text, reply_markup=make_plans_kb())
     return CHOOSING_PLAN
+
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "/start – begin subscription
+/plans – show plans
+/status – your latest order
+/myid – show your chat id
+/cancel – cancel current flow
+")
+
+
+async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Your chat ID is: {update.effective_chat.id}")
 
 
 async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,9 +206,13 @@ async def on_plan_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["order_id"] = order.order_id
 
     text = (
-        f"🧾 Order: <b>{order.order_id}</b>\n"
-        f"Plan: <b>{order.plan_title}</b> – <b>{order.price_aed} AED</b>\n\n"
-        "Please enter your full name (English or Arabic).\n"
+        f"🧾 Order: <b>{order.order_id}</b>
+"
+        f"Plan: <b>{order.plan_title}</b> – <b>{order.price_aed} AED</b>
+
+"
+        "Please enter your full name (English or Arabic).
+"
         "من فضلك اكتب اسمك الكامل."
     )
     await query.edit_message_text(text, parse_mode=ParseMode.HTML)
@@ -182,7 +227,8 @@ async def on_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     order.name = name
     await update.message.reply_text(
-        "✉️ Great. Now send your email address (for receipts).\n"
+        "✉️ Great. Now send your email address (for receipts).
+"
         "أرسل بريدك الإلكتروني.")
     return ASK_EMAIL
 
@@ -195,7 +241,8 @@ async def on_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     order.email = email
     await update.message.reply_text(
-        "💰 Choose payment method:\nاختر طريقة الدفع:",
+        "💰 Choose payment method:
+اختر طريقة الدفع:",
         reply_markup=make_payment_methods_kb(),
     )
     return ASK_METHOD
@@ -213,11 +260,18 @@ async def on_payment_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     invoice_url = f"{PAYMENT_LINK_BASE}{order.order_id}"
     text = (
-        f"🧾 <b>Invoice</b> #{order.order_id}\n"
-        f"Plan: <b>{order.plan_title}</b> – <b>{order.price_aed} AED</b>\n"
-        f"Method: <b>{method_code}</b>\n\n"
-        f"➡️ Pay here: {invoice_url}\n"
-        "After paying, tap the button below and send your transaction/reference ID.\n\n"
+        f"🧾 <b>Invoice</b> #{order.order_id}
+"
+        f"Plan: <b>{order.plan_title}</b> – <b>{order.price_aed} AED</b>
+"
+        f"Method: <b>{method_code}</b>
+
+"
+        f"➡️ Pay here: {invoice_url}
+"
+        "After paying, tap the button below and send your transaction/reference ID.
+
+"
         "بعد الدفع اضغط الزر بالأسفل وأرسل رقم التحويل/المرجع."
     )
     await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=make_paid_kb(order.order_id))
@@ -233,7 +287,8 @@ async def on_paid_pressed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await query.edit_message_text(
-        "✅ Great! Please send your payment reference/transaction ID now.\n"
+        "✅ Great! Please send your payment reference/transaction ID now.
+"
         "أرسل رقم مرجع الدفع الآن.")
     return WAIT_PAYMENT_PROOF
 
@@ -249,27 +304,40 @@ async def on_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Notify Admin
     admin_msg = (
-        f"🆕 New Subscription\n"
-        f"User: @{update.effective_user.username or update.effective_user.id}\n"
-        f"Order: {order.order_id}\n"
-        f"Plan: {order.plan_title} ({order.plan_code})\n"
-        f"Price: {order.price_aed} AED\n"
-        f"Name: {order.name}\n"
-        f"Email: {order.email}\n"
-        f"Method: {order.payment_method}\n"
+        f"🆕 New Subscription
+"
+        f"User: @{update.effective_user.username or update.effective_user.id}
+"
+        f"Order: {order.order_id}
+"
+        f"Plan: {order.plan_title} ({order.plan_code})
+"
+        f"Price: {order.price_aed} AED
+"
+        f"Name: {order.name}
+"
+        f"Email: {order.email}
+"
+        f"Method: {order.payment_method}
+"
         f"Txn Ref: {order.paid_txn_ref}"
     )
     try:
         await update.get_bot().send_message(chat_id=int(ADMIN_CHAT_ID), text=admin_msg)
+        logger.info("Admin DM sent for order %s", order.order_id)
     except Exception as e:
-        # Don't crash the flow if admin DM fails
-        await update.message.reply_text(f"⚠️ Admin notification failed: {e}")
+        logger.warning("Admin DM failed: %s", e)
+        await update.message.reply_text("⚠️ Admin notification failed, but your payment ref was received.")
 
     # Receipt to user
     receipt = (
-        f"🎉 Thank you, {order.name}!\n"
-        f"Your order <b>{order.order_id}</b> for <b>{order.plan_title}</b> is being verified.\n"
-        "You will receive activation details shortly.\n\n"
+        f"🎉 Thank you, {order.name}!
+"
+        f"Your order <b>{order.order_id}</b> for <b>{order.plan_title}</b> is being verified.
+"
+        "You will receive activation details shortly.
+
+"
         f"شكراً لك! طلبك <b>{order.order_id}</b> قيد المراجعة. سيتم إرسال التفعيل قريباً."
     )
     await update.message.reply_text(receipt, parse_mode=ParseMode.HTML)
@@ -282,10 +350,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No recent order found. Use /start to begin.")
         return
     text = (
-        f"Order: {order.order_id}\n"
-        f"Plan: {order.plan_title} – {order.price_aed} AED\n"
-        f"Name: {order.name}\nEmail: {order.email}\n"
-        f"Method: {order.payment_method}\nTxn: {order.paid_txn_ref or '-'}"
+        f"Order: {order.order_id}
+"
+        f"Plan: {order.plan_title} – {order.price_aed} AED
+"
+        f"Name: {order.name}
+Email: {order.email}
+"
+        f"Method: {order.payment_method}
+Txn: {order.paid_txn_ref or '-'}"
     )
     await update.message.reply_text(text)
 
@@ -317,15 +390,10 @@ def main():
 
     app.add_handler(conv)
     app.add_handler(CommandHandler("status", cmd_status))
-
-    # Optional: a help command
-    async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(
-            "/start – begin subscription\n/plans – show plans\n/status – your latest order\n/cancel – cancel current flow\n")
-
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("myid", cmd_myid))
 
-    print("Bot is running… Press Ctrl+C to stop.")
+    logger.info("Starting bot polling…")
     app.run_polling(close_loop=False)
 
 
