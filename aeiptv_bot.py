@@ -111,13 +111,30 @@ class Store:
 STORE = Store()
 
 # ====== Config helpers
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")  # string ok; telegram lib will cast
-SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME", "AE_IPTV")
-BRAND = os.environ.get("BRAND_NAME", "AEIPTV")
-PAYMENT_LINK_BASE = os.environ.get("PAYMENT_LINK_BASE", "https://pay.example.com/invoice/")
+
+def _get_secret(name: str) -> Optional[str]:
+    """Read from env or from a *_FILE path (works with Render Secret Files)."""
+    val = os.environ.get(name)
+    if val:  # non-empty string
+        return val.strip()
+    file_key = f"{name}_FILE"
+    path = os.environ.get(file_key)
+    if path and os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception as e:
+            logger.warning("Failed reading %s: %s", file_key, e)
+    return None
+
+BOT_TOKEN = _get_secret("BOT_TOKEN")
+ADMIN_CHAT_ID = _get_secret("ADMIN_CHAT_ID")  # numeric as string is fine
+SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME", "AE_IPTV").strip()
+BRAND = os.environ.get("BRAND_NAME", "AEIPTV").strip()
+PAYMENT_LINK_BASE = os.environ.get("PAYMENT_LINK_BASE", "https://pay.example.com/invoice/").strip()
 
 # Health log (don’t print secrets!)
+logger.info("Env keys present: %s", [k for k in os.environ.keys() if k in {"BOT_TOKEN","ADMIN_CHAT_ID","BOT_TOKEN_FILE","ADMIN_CHAT_ID_FILE","RENDER","RENDER_SERVICE_ID"}])
 logger.info("Has BOT_TOKEN: %s", bool(BOT_TOKEN))
 logger.info("Has ADMIN_CHAT_ID: %s", bool(ADMIN_CHAT_ID))
 
