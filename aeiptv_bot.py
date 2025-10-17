@@ -12,12 +12,19 @@ Requirements
 
 Setup
 1) pip install python-telegram-bot==21.4
-2) Replace BOT_TOKEN with your BotFather token
-3) Replace ADMIN_CHAT_ID with your Telegram numeric chat id
-4) Run: python3 aeiptv_bot.py
+2) Set environment variables:
+   BOT_TOKEN="123456:ABC..."
+   ADMIN_CHAT_ID="123456789"   # Your Telegram numeric chat id
+3) Edit the PACKAGES dict below with your real prices and payment links
+4) Run: python aeiptv_bot.py
+
+Notes
+- This script uses polling for simplicity. For production, configure a webhook.
+- All texts are in English. You can Arabic‑ize easily by editing the TEXT_* strings.
 """
 
 from __future__ import annotations
+import os
 import logging
 from datetime import datetime
 from typing import Dict, Any
@@ -26,6 +33,7 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from telegram.ext import (
     Application,
@@ -37,40 +45,35 @@ from telegram.ext import (
 )
 
 # ------------------------- CONFIG -------------------------
-BOT_TOKEN = "8399564351:AAFWi6_RHhC-NDtaUFWqcvEGkQSOBn3yI2s"
-ADMIN_CHAT_ID = 123456789   # <-- replace this with your numeric Telegram ID
+BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT-YOUR-TOKEN-HERE")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))  # your Telegram user/chat id
 
+# TODO: Replace prices and payment links with your real ones
 PACKAGES: Dict[str, Dict[str, Any]] = {
-    "AEIPTV Kids": {
-        "code": "kids",
-        "price_aed": 70,
-        "details": "\n• Kids-safe channels\n• Cartoons & Educational shows\n• Works on 1 device\n",
-        "payment_url": "https://buy.stripe.com/3cIbJ29I94yA92g2AV5kk04",
-    },
     "AEIPTV Casual": {
         "code": "casual",
-        "price_aed": 75,
+        "price_aed": 199,  # TODO
         "details": "\n• 10,000+ Live Channels\n• 70,000+ Movies (VOD)\n• 12,000+ Series\n• Works on 1 device\n",
-        "payment_url": "https://buy.stripe.com/6oU6oIf2t8OQa6kejD5kk03",
+        "payment_url": "https://your-payment-link.example/casual",  # TODO
     },
     "AEIPTV Executive": {
         "code": "executive",
-        "price_aed": 200,
+        "price_aed": 269,  # TODO
         "details": "\n• 16,000+ Live Channels\n• 24,000+ Movies (VOD)\n• 14,000+ Series\n• SD/HD/FHD/4K\n• Works on 2 devices\n",
-        "payment_url": "https://buy.stripe.com/8x23cw07zghi4M0ejD5kk05",
+        "payment_url": "https://your-payment-link.example/executive",  # TODO
     },
     "AEIPTV Premium": {
         "code": "premium",
-        "price_aed": 250,
+        "price_aed": 369,  # TODO
         "details": "\n• Full package combo\n• 65,000+ Live Channels\n• 180,000+ Movies (VOD)\n• 10,000+ Series\n• Priority support\n",
-        "payment_url": "https://buy.stripe.com/eVq00k7A15CE92gdfz5kk01",
+        "payment_url": "https://your-payment-link.example/premium",  # TODO
     },
 }
 
-# ----------------------- STATE ----------------------------
+# Simple per-user session state (in-memory)
 USER_STATE: Dict[int, Dict[str, Any]] = {}
 
-# ----------------------- TEXTS ----------------------------
+# ----------------------- TEXT STRINGS ---------------------
 BRAND = "AEIPTV"
 
 TEXT_WELCOME = (
@@ -110,7 +113,8 @@ TEXT_THANK_YOU = (
     "We’ll message you shortly to finalize your activation."
 )
 
-# ---------------------- KEYBOARDS -------------------------
+# ---------------------- KEYBOARD HELPERS ------------------
+
 def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -121,6 +125,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
         ]
     )
 
+
 def packages_kb() -> InlineKeyboardMarkup:
     rows = []
     for pkg_name in PACKAGES.keys():
@@ -128,11 +133,13 @@ def packages_kb() -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("⬅️ Back", callback_data="back_home")])
     return InlineKeyboardMarkup(rows)
 
+
 def agree_kb(pkg_name: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ I Agree", callback_data=f"agree|{pkg_name}")],
         [InlineKeyboardButton("⬅️ Back", callback_data="subscribe")],
     ])
+
 
 def pay_kb(pkg_name: str) -> InlineKeyboardMarkup:
     pay_url = PACKAGES[pkg_name]["payment_url"]
@@ -143,10 +150,12 @@ def pay_kb(pkg_name: str) -> InlineKeyboardMarkup:
     ])
 
 # ------------------------- HANDLERS -----------------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     USER_STATE.setdefault(chat_id, {})
     await update.effective_message.reply_text(TEXT_WELCOME, reply_markup=main_menu_kb())
+
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
@@ -154,10 +163,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=main_menu_kb(),
     )
 
+
 async def any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Reply to ANY incoming text with the main menu
     chat_id = update.effective_chat.id
     USER_STATE.setdefault(chat_id, {})
     await update.message.reply_text(TEXT_WELCOME, reply_markup=main_menu_kb())
+
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -183,6 +195,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await query.edit_message_text("Package not found.", reply_markup=packages_kb())
             return
 
+        # Save selection in state
         chat_id = query.message.chat.id
         USER_STATE.setdefault(chat_id, {})["package"] = pkg_name
 
@@ -197,6 +210,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if data.startswith("agree|"):
         _, pkg_name = data.split("|", 1)
+        # show payment link
         text = (
             f"You selected <b>{pkg_name}</b>.\n\n"
             f"{TEXT_PAYMENT_INSTRUCTIONS}"
@@ -210,12 +224,24 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = query.message.chat.id
         selection = USER_STATE.get(chat_id, {}).get("package", pkg_name)
 
-        if ADMIN_CHAT_ID:
+        # Log to terminal for visibility
+        logging.info(
+            "I PAID clicked: user=%s (@%s, id=%s) package=%s",
+            user.full_name, user.username, user.id, selection,
+        )
+
+        # Notify admin (best-effort)
+        if ADMIN_CHAT_ID and isinstance(ADMIN_CHAT_ID, int) and ADMIN_CHAT_ID != 123456789:
             msg_admin = (
-                f"🆕 New Payment Confirmation\n\n"
-                f"User: @{user.username or 'N/A'} (id: {user.id})\n"
-                f"Name: {user.full_name}\n"
-                f"Package: {selection}\n"
+                f"🆕 New Payment Confirmation
+
+"
+                f"User: @{user.username or 'N/A'} (id: {user.id})
+"
+                f"Name: {user.full_name}
+"
+                f"Package: {selection}
+"
                 f"Time: {datetime.now().isoformat(timespec='seconds')}"
             )
             try:
@@ -223,15 +249,25 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except Exception as e:
                 logging.error("Failed to notify admin: %s", e)
 
-        await query.edit_message_text(TEXT_THANK_YOU, reply_markup=main_menu_kb())
+        # Thank the user – fall back to sending a new message if edit fails
+        try:
+            await query.edit_message_text(TEXT_THANK_YOU, reply_markup=main_menu_kb())
+        except Exception as e:
+            logging.warning("edit_message_text failed (sending new message): %s", e)
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=TEXT_THANK_YOU, reply_markup=main_menu_kb())
+            except Exception as e2:
+                logging.error("Failed to send thank-you message: %s", e2)
         return
 
+
 # -------------------------- MAIN --------------------------
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     if not BOT_TOKEN or BOT_TOKEN == "PUT-YOUR-TOKEN-HERE":
-        raise SystemExit("Please set BOT_TOKEN properly in the code.")
+        raise SystemExit("Please set BOT_TOKEN env var.")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -242,6 +278,7 @@ def main():
 
     logging.info("Bot is starting with polling...")
     app.run_polling(close_loop=False)
+
 
 if __name__ == "__main__":
     main()
