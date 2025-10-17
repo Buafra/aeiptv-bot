@@ -95,8 +95,11 @@ SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME", "AE_IPTV").strip()
 BRAND = os.environ.get("BRAND_NAME", "AEIPTV").strip()
 PAYMENT_LINK_BASE = os.environ.get("PAYMENT_LINK_BASE", "https://pay.example.com/invoice/").strip()
 
+# Debug logging
 logger.info("Has BOT_TOKEN: %s", bool(BOT_TOKEN))
 logger.info("Has ADMIN_CHAT_ID: %s", bool(ADMIN_CHAT_ID))
+logger.info("BOT_TOKEN length: %s", len(BOT_TOKEN) if BOT_TOKEN else 0)
+logger.info("All env vars: %s", list(os.environ.keys()))
 
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is missing. Set it in your environment.")
