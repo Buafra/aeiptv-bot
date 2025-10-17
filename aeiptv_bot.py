@@ -1,37 +1,24 @@
 """
-AEIPTV Telegram Sales Bot — Final Clean Version (Render-ready)
+AEIPTV Telegram Sales Bot — Final Hardcoded Version
+For testing: BOT_TOKEN and ADMIN_CHAT_ID are set inside this file.
 
-Features:
-- Uses BOT_TOKEN and ADMIN_CHAT_ID from environment variables (set in Render)
-- Packages: Kids, Casual, Executive, Premium with price & payment link
-- Menu flow: More Info | Subscribe → Packages → Terms → Pay → I Paid
-- Robust I Paid handler: logs event, notifies admin, thanks user (with fallback)
-- Compatible with python-telegram-bot==21.4
-
-Deployment (Render Background Worker):
-1. requirements.txt should contain: python-telegram-bot==21.4
-2. Build Command:  pip install -r requirements.txt
-3. Start Command:  python aeiptv_bot.py
-4. Environment Variables:
-   BOT_TOKEN=<BotFather token>
-   ADMIN_CHAT_ID=<your numeric Telegram ID>
+Requirements (requirements.txt):
+    python-telegram-bot==21.4
 """
 
-import os
 import logging
 from datetime import datetime
 from typing import Dict, Any
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import (
+    Application, CommandHandler, ContextTypes,
+    MessageHandler, CallbackQueryHandler, filters
+)
 
 # ------------------------- CONFIG -------------------------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID", "")
-try:
-    ADMIN_CHAT_ID: int | None = int(ADMIN_CHAT_ID_RAW) if ADMIN_CHAT_ID_RAW else None
-except ValueError:
-    ADMIN_CHAT_ID = None
+BOT_TOKEN = "8399564351:AAFWi6_RHhC-NDtaUFWqcvEGkQSOBn3yI2s"   # Your bot token
+ADMIN_CHAT_ID = 7698278415  # Replace with your real Telegram numeric ID
 
 PACKAGES: Dict[str, Dict[str, Any]] = {
     "AEIPTV Kids": {
@@ -62,7 +49,7 @@ PACKAGES: Dict[str, Dict[str, Any]] = {
 
 USER_STATE: Dict[int, Dict[str, Any]] = {}
 
-# ----------------------- TEXTS ----------------------------
+# ------------------------- TEXTS -------------------------
 BRAND = "AEIPTV"
 TEXT_WELCOME = f"Welcome to {BRAND}!\n\nHow can we help you today?"
 TEXT_MORE_INFO = (
@@ -84,12 +71,15 @@ TEXT_TERMS = (
     "• No refunds after activation.\n\n"
     "Do you agree to proceed?"
 )
-TEXT_PAYMENT_INSTRUCTIONS = "💳 Payment\n\nTap Pay Now to complete payment. Then return and press 'I Paid'."
+TEXT_PAYMENT_INSTRUCTIONS = (
+    "💳 Payment\n\nTap Pay Now to complete payment. Then return and press 'I Paid'."
+)
 TEXT_THANK_YOU = f"🎉 Thank you for choosing {BRAND}!\nWe’ll contact you soon to activate your account."
 
-# ---------------------- KEYBOARDS -------------------------
+# ------------------------- KEYBOARDS -------------------------
 def main_menu_kb():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("📋 More Info", callback_data="more_info"), InlineKeyboardButton("💳 Subscribe", callback_data="subscribe")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("📋 More Info", callback_data="more_info"),
+                                  InlineKeyboardButton("💳 Subscribe", callback_data="subscribe")]])
 
 def packages_kb():
     rows = [[InlineKeyboardButton(pkg, callback_data=f"pkg|{pkg}")] for pkg in PACKAGES.keys()]
@@ -97,13 +87,16 @@ def packages_kb():
     return InlineKeyboardMarkup(rows)
 
 def agree_kb(pkg_name: str):
-    return InlineKeyboardMarkup([[InlineKeyboardButton("✅ I Agree", callback_data=f"agree|{pkg_name}")], [InlineKeyboardButton("⬅️ Back", callback_data="subscribe")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("✅ I Agree", callback_data=f"agree|{pkg_name}")],
+                                 [InlineKeyboardButton("⬅️ Back", callback_data="subscribe")]])
 
 def pay_kb(pkg_name: str):
     pay_url = PACKAGES[pkg_name]["payment_url"]
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Pay Now", url=pay_url)], [InlineKeyboardButton("✅ I Paid", callback_data=f"paid|{pkg_name}")], [InlineKeyboardButton("⬅️ Back", callback_data="subscribe")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Pay Now", url=pay_url)],
+                                 [InlineKeyboardButton("✅ I Paid", callback_data=f"paid|{pkg_name}")],
+                                 [InlineKeyboardButton("⬅️ Back", callback_data="subscribe")]])
 
-# ------------------------- HANDLERS -----------------------
+# ------------------------- HANDLERS -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(TEXT_WELCOME, reply_markup=main_menu_kb())
 
@@ -133,9 +126,6 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("pkg|"):
         _, pkg_name = data.split("|", 1)
         pkg = PACKAGES.get(pkg_name)
-        if not pkg:
-            await query.edit_message_text("Package not found.", reply_markup=packages_kb())
-            return
         chat_id = query.message.chat.id
         USER_STATE.setdefault(chat_id, {})["package"] = pkg_name
         text = f"🛍️ <b>{pkg_name}</b>\n💰 Price: <b>{pkg['price_aed']} AED</b>\n{pkg['details']}\n{TEXT_TERMS}"
@@ -154,14 +144,18 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = query.message.chat.id
         selection = USER_STATE.get(chat_id, {}).get("package", pkg_name)
 
-        logging.info("I PAID clicked: user=%s (@%s, id=%s) package=%s", user.full_name, user.username, user.id, selection)
+        logging.info("I PAID clicked: user=%s (@%s, id=%s) package=%s",
+                     user.full_name, user.username, user.id, selection)
 
+        # Notify admin
         if ADMIN_CHAT_ID:
-            msg_admin = ("🆕 New Payment Confirmation\n\n"
-                         f"User: @{user.username or 'N/A'} (id: {user.id})\n"
-                         f"Name: {user.full_name}\n"
-                         f"Package: {selection}\n"
-                         f"Time: {datetime.now().isoformat(timespec='seconds')}")
+            msg_admin = (
+                "🆕 New Payment Confirmation\n\n"
+                f"User: @{user.username or 'N/A'} (id: {user.id})\n"
+                f"Name: {user.full_name}\n"
+                f"Package: {selection}\n"
+                f"Time: {datetime.now().isoformat(timespec='seconds')}"
+            )
             try:
                 await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg_admin)
             except Exception as e:
@@ -170,27 +164,21 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await query.edit_message_text(TEXT_THANK_YOU, reply_markup=main_menu_kb())
         except Exception as e:
-            logging.warning("edit_message_text failed, sending new message: %s", e)
+            logging.warning("edit_message_text failed; sending new message: %s", e)
             try:
                 await context.bot.send_message(chat_id=chat_id, text=TEXT_THANK_YOU, reply_markup=main_menu_kb())
             except Exception as e2:
                 logging.error("Failed to send thank-you message: %s", e2)
         return
 
-# -------------------------- MAIN --------------------------
+# ------------------------- MAIN -------------------------
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-    if not BOT_TOKEN:
-        raise SystemExit("BOT_TOKEN is missing. Set it in Render env vars.")
-
     app = Application.builder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_message))
-
     logging.info("Bot is starting with polling...")
     app.run_polling(close_loop=False)
 
